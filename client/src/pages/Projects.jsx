@@ -1,0 +1,287 @@
+import { useEffect, useState } from "react";
+import ProjectCard from "../components/ProjectCard";
+import StateMessage from "../components/StateMessage";
+import { useAuth } from "../context/AuthContext";
+import api from "../services/api";
+
+const initialForm = { name: "", description: "", members: [] };
+
+export default function Projects() {
+  const { user } = useAuth();
+  const [projects, setProjects] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [modalOpen, setModalOpen] = useState(false);
+  const [form, setForm] = useState(initialForm);
+  const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState("");
+  const [selectedProject, setSelectedProject] = useState(null);
+  const [memberEmail, setMemberEmail] = useState("");
+  const [memberLoading, setMemberLoading] = useState(false);
+  const [memberError, setMemberError] = useState("");
+  const [deleteConfirm, setDeleteConfirm] = useState(null);
+
+  const loadProjects = async () => {
+    try {
+      setLoading(true);
+      const response = await api.get("/projects");
+      setProjects(response.data.data);
+      setError("");
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadProjects();
+  }, []);
+
+  const handleCreate = async (event) => {
+    event.preventDefault();
+    setSaving(true);
+    setFormError("");
+
+    try {
+      const response = await api.post("/projects", form);
+      setProjects((current) => [response.data.data, ...current]);
+      setForm(initialForm);
+      setModalOpen(false);
+    } catch (err) {
+      setFormError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleAddMember = async (projectId) => {
+    if (!memberEmail.trim()) {
+      setMemberError("Email is required");
+      return;
+    }
+
+    setMemberLoading(true);
+    setMemberError("");
+
+    try {
+      const response = await api.post(`/projects/${projectId}/members/add`, { email: memberEmail });
+      setProjects((current) =>
+        current.map((project) => (project._id === projectId ? response.data.data : project))
+      );
+      setMemberEmail("");
+      setSelectedProject(null);
+    } catch (err) {
+      setMemberError(err.message);
+    } finally {
+      setMemberLoading(false);
+    }
+  };
+
+  const handleRemoveMember = async (projectId, memberId) => {
+    setMemberLoading(true);
+    setMemberError("");
+
+    try {
+      const response = await api.delete(`/projects/${projectId}/members/${memberId}`);
+      setProjects((current) =>
+        current.map((project) => (project._id === projectId ? response.data.data : project))
+      );
+    } catch (err) {
+      setMemberError(err.message);
+    } finally {
+      setMemberLoading(false);
+    }
+  };
+
+  const handleDeleteProject = async (projectId) => {
+    setLoading(true);
+    try {
+      await api.delete(`/projects/${projectId}`);
+      setProjects((current) => current.filter((p) => p._id !== projectId));
+      setDeleteConfirm(null);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <>
+      <header className="mb-10 flex flex-col gap-6 rounded-3xl bg-white p-8 shadow-sm lg:flex-row lg:items-end lg:justify-between">
+        <div>
+          <h1 className="mb-2 font-h1 text-h1 text-on-surface">Projects Overview</h1>
+          <p className="font-body-lg text-on-surface-variant">Manage and track progress across your team's active workstreams.</p>
+        </div>
+        <div className="flex flex-wrap gap-4">
+          <button className="flex items-center gap-2 rounded-3xl border border-outline px-5 py-3 font-semibold text-label-md text-on-surface transition hover:bg-slate-100" type="button">
+            <span className="material-symbols-outlined text-sm">filter_list</span>
+            Filter
+          </button>
+          <button
+            className="flex items-center gap-2 rounded-3xl bg-primary px-5 py-3 font-semibold text-label-md text-white shadow-sm transition hover:bg-primary-container active:scale-[0.98]"
+            type="button"
+            onClick={() => setModalOpen(true)}
+          >
+            <span className="material-symbols-outlined text-sm">add</span>
+            Create New Project
+          </button>
+        </div>
+      </header>
+
+      {loading ? <StateMessage title="Loading projects" message="Fetching your workspace projects..." /> : null}
+      {error ? <StateMessage title="Projects unavailable" message={error} tone="error" /> : null}
+      {!loading && !error && !projects.length ? (
+        <StateMessage title="No projects yet" message="Create the first project to start organizing tasks." />
+      ) : null}
+
+      {!loading && !error && projects.length ? (
+        <div className="grid grid-cols-1 gap-xl md:grid-cols-2 lg:grid-cols-3">
+          {projects.map((project, index) => (
+            <ProjectCard key={project._id} project={project} featured={index === 0} onEdit={() => setSelectedProject(project)} onDelete={() => setDeleteConfirm(project._id)} />
+          ))}
+        </div>
+      ) : null}
+
+      {selectedProject && selectedProject.isOwner && (
+        <section className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/40 p-gutter">
+          <div className="w-full max-w-lg rounded-xl border border-outline-variant bg-white p-xl shadow-2xl">
+            <div className="mb-lg flex items-center justify-between">
+              <h2 className="font-h2 text-h2 text-on-surface">Manage Members</h2>
+              <button className="rounded-full p-2 hover:bg-slate-50" type="button" onClick={() => setSelectedProject(null)}>
+                <span className="material-symbols-outlined">close</span>
+              </button>
+            </div>
+
+            {memberError ? <div className="mb-md rounded-lg bg-error-container p-md text-label-md text-on-error-container">{memberError}</div> : null}
+
+            <div className="mb-lg space-y-md">
+              <div>
+                <label className="mb-xs block text-label-md text-on-surface-variant" htmlFor="member-email">
+                  Add member by email
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    className="flex-1 rounded-lg border border-outline-variant bg-surface-bright px-md py-sm font-body-md text-on-surface placeholder:text-outline focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary-container/20"
+                    id="member-email"
+                    type="email"
+                    placeholder="user@example.com"
+                    value={memberEmail}
+                    onChange={(e) => setMemberEmail(e.target.value)}
+                  />
+                  <button
+                    className="rounded-lg bg-primary px-lg py-sm font-semibold text-white disabled:opacity-60"
+                    type="button"
+                    onClick={() => handleAddMember(selectedProject._id)}
+                    disabled={memberLoading}
+                  >
+                    {memberLoading ? "Adding..." : "Add"}
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <span className="block text-label-md font-semibold text-on-surface mb-2">Current Members</span>
+                <div className="space-y-sm max-h-64 overflow-auto">
+                  {selectedProject.members?.map((member) => (
+                    <div className="flex items-center justify-between rounded-lg border border-outline-variant p-2" key={member._id}>
+                      <div>
+                        <div className="text-label-md font-semibold text-on-surface">{member.name}</div>
+                        <div className="text-label-sm text-on-surface-variant">{member.email}</div>
+                      </div>
+                      {member._id !== selectedProject.createdBy._id && (
+                        <button
+                          className="rounded px-2 py-1 text-label-sm text-red-600 hover:bg-red-50 disabled:opacity-60"
+                          type="button"
+                          onClick={() => handleRemoveMember(selectedProject._id, member._id)}
+                          disabled={memberLoading}
+                        >
+                          Remove
+                        </button>
+                      )}
+                      {member._id === selectedProject.createdBy._id && (
+                        <span className="text-label-sm text-on-surface-variant">Owner</span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {deleteConfirm && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/40 p-gutter">
+          <div className="w-full max-w-sm rounded-xl border border-outline-variant bg-white p-xl shadow-2xl">
+            <h2 className="mb-md font-h2 text-h2 text-on-surface">Delete Project?</h2>
+            <p className="mb-lg text-body-md text-on-surface-variant">This action cannot be undone. All tasks will be deleted.</p>
+            <div className="flex gap-2">
+              <button
+                className="flex-1 rounded-lg border border-outline px-lg py-md font-semibold text-on-surface"
+                type="button"
+                onClick={() => setDeleteConfirm(null)}
+              >
+                Cancel
+              </button>
+              <button
+                className="flex-1 rounded-lg bg-red-600 px-lg py-md font-semibold text-white disabled:opacity-60"
+                type="button"
+                onClick={() => handleDeleteProject(deleteConfirm)}
+                disabled={loading}
+              >
+                {loading ? "Deleting..." : "Delete"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {modalOpen ? (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/40 p-gutter">
+          <div className="w-full max-w-lg rounded-xl border border-outline-variant bg-white p-xl shadow-2xl">
+            <div className="mb-lg flex items-center justify-between">
+              <h2 className="font-h2 text-h2 text-on-surface">Create New Project</h2>
+              <button className="rounded-full p-2 hover:bg-slate-50" type="button" onClick={() => setModalOpen(false)}>
+                <span className="material-symbols-outlined">close</span>
+              </button>
+            </div>
+            {formError ? <div className="mb-md rounded-lg bg-error-container p-md text-label-md text-on-error-container">{formError}</div> : null}
+            <form className="space-y-lg" onSubmit={handleCreate}>
+              <div>
+                <label className="mb-xs block text-label-md text-on-surface-variant" htmlFor="project-name">
+                  Project name
+                </label>
+                <input
+                  className="w-full rounded-lg border border-outline-variant bg-surface-bright px-md py-sm font-body-md text-on-surface placeholder:text-outline focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary-container/20"
+                  id="project-name"
+                  required
+                  placeholder="Enter project name"
+                  value={form.name}
+                  onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
+                />
+              </div>
+              <div>
+                <label className="mb-xs block text-label-md text-on-surface-variant" htmlFor="project-description">
+                  Description
+                </label>
+                <textarea
+                  className="w-full rounded-lg border border-outline-variant bg-surface-bright px-md py-sm font-body-md text-on-surface placeholder:text-outline focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary-container/20"
+                  id="project-description"
+                  rows="4"
+                  placeholder="Add project details..."
+                  value={form.description}
+                  onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))}
+                />
+              </div>
+              <button className="w-full rounded-lg bg-primary px-lg py-md font-semibold text-white disabled:opacity-60" type="submit" disabled={saving}>
+                {saving ? "Creating..." : "Create Project"}
+              </button>
+            </form>
+          </div>
+        </div>
+      ) : null}
+    </>
+  );
+}
